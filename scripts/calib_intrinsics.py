@@ -187,7 +187,7 @@ def calibrate(status, objpoints, imgpoints, imgshape):
     intrinsics = {
         'tolerance': tolerance,
         'cameraMatrix': cameraMatrix,
-        'distCoeffs': distCoeffs,
+        'distCoeffs': distCoeffs[0],
         'resolution': imgshape
     }
 
@@ -197,7 +197,12 @@ def calibrate(status, objpoints, imgpoints, imgshape):
 def undistort(intrinsics, srcfiles, dstfiles):
     for (spath, dpath) in zip(srcfiles, dstfiles):
         img = cv2.imread(spath)
-        img2 = cv2.undistort(img, intrinsics['cameraMatrix'], intrinsics['distCoeffs'])
+
+        img2 = cv2.undistort(
+            img,
+            intrinsics['cameraMatrix'],
+            np.array([intrinsics['distCoeffs']])
+        )
         cv2.imwrite(dpath, img2)
 
 
