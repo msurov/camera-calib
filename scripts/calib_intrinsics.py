@@ -34,16 +34,16 @@ def parse_shape(value):
 def list_sources(srcdir, imgmask):
     files = glob(join(srcdir, imgmask))
     files = filter(lambda f: isfile(f), files)
-    return files
+    return list(files)
 
 
 def print_deviations(status, devs, srcfiles):
     indexes = np.arange(0, len(srcfiles))[status]
     devs2 = [np.mean(d) for d in devs[status]]
-    print 'The image points deviation:'
+    print( 'The image points deviation:')
     for d, i in sorted(zip(devs2, indexes), reverse=True):
         _,name = split(srcfiles[i])
-        print '  %s: %fpx' % (name, d)
+        print( '  %s: %fpx' % (name, d))
 
 
 def filter_outliers(status, devs, c=0.9):
@@ -139,12 +139,12 @@ def collect_imgpoints(srcfiles):
     status = []
 
     for fpath in srcfiles:
-        print 'detecting chessboard in ' + split(fpath)[1] + '.. ',
+        print( 'detecting chessboard in ' + split(fpath)[1] + '.. ',)
         img = cv2.imread(fpath)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         corners = extract_corners(gray, pattern_shape)
         if corners is None:
-            print 'couldn\'t find pattern!'
+            print( 'couldn\'t find pattern!')
             objpoints.append(None)
             imgpoints.append(None)
             status.append(False)
@@ -153,7 +153,7 @@ def collect_imgpoints(srcfiles):
         objpoints.append(objp)
         imgpoints.append(corners)
         status.append(True)
-        print 'ok'
+        print( 'ok')
 
     return np.array(status), np.array(objpoints), np.array(imgpoints)
 
@@ -259,17 +259,17 @@ def print_calib_result(intrinsics):
     colored_green = '\033[92m'
     colored_end = '\033[0m'
 
-    print colored_green
-    print '-------------------'
-    print 'calibration results'
-    print '-------------------'
-    print 'tolerance: ', intrinsics['tolerance']
-    print 'distortion coefs: '
-    print intrinsics['distCoeffs']
-    print 'camera matrix: '
-    print intrinsics['cameraMatrix']
-    print '-------------------'
-    print colored_end
+    print( colored_green)
+    print( '-------------------')
+    print( 'calibration results')
+    print( '-------------------')
+    print( 'tolerance: ', intrinsics['tolerance'])
+    print( 'distortion coefs: ')
+    print( intrinsics['distCoeffs'])
+    print( 'camera matrix: ')
+    print( intrinsics['cameraMatrix'])
+    print( '-------------------')
+    print( colored_end)
 
 
 def main(srcdir, pattern_shape, imgmask, outdir=None, iterations=1, saveto=None):
@@ -283,33 +283,33 @@ def main(srcdir, pattern_shape, imgmask, outdir=None, iterations=1, saveto=None)
     status, objpoints, imgpoints = collect_imgpoints(srcfiles)
 
     if outdir is not None:
-        print 'drawing corners..',
+        print( 'drawing corners..',)
         dstfiles = [join(outdir, 'corners-' + split(f)[1]) for f in srcfiles]
         draw_corners(status, srcfiles, dstfiles, pattern_shape, imgpoints)
-        print 'done'
+        print( 'done')
 
-    print 'calibrating..',
+    print( 'calibrating..',)
     intrinsics, deviations = calibrate(status, objpoints, imgpoints, imshape)
-    print 'ok'
+    print( 'ok')
 
     print_deviations(status, deviations, srcfiles)
     print_calib_result(intrinsics)
 
-    for i in xrange(iterations-1):
+    for i in range(iterations-1):
         status = filter_outliers(status, deviations)
-        print 'outliers: '
+        print( 'outliers: ')
         for s,f in zip(status, srcfiles):
             if not s:
                 _,name = split(f)
-                print ' ', name
+                print( ' ', name)
 
         if sum(status) < 2:
-            print Warning('can\'t proceed %d iterations ' % iterations)
+            print( Warning('can\'t proceed %d iterations ' % iterations))
             break
 
-        print 'calibrating..',
+        print( 'calibrating..')
         intrinsics, deviations = calibrate(status, objpoints, imgpoints, imshape)
-        print 'ok'
+        print( 'ok')
 
         print_deviations(status, deviations, srcfiles)
         print_calib_result(intrinsics)
@@ -320,10 +320,10 @@ def main(srcdir, pattern_shape, imgmask, outdir=None, iterations=1, saveto=None)
         # draw_corners(status, srcfiles, dstfiles, pattern_shape, imgpoints)
         # print 'done'
 
-        print 'undistorting..',
+        print( 'undistorting..',)
         dstfiles = [join(outdir, 'undistort-' + split(f)[1]) for f in srcfiles]
         undistort(intrinsics, srcfiles, dstfiles)
-        print 'done'
+        print( 'done')
 
     if saveto is not None:
         save_parameters(saveto, intrinsics)
