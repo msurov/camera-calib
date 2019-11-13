@@ -33,7 +33,14 @@ def parse_shape(value):
 '''
 def list_sources(srcdir, imgmask):
     files = glob(join(srcdir, imgmask))
-    files = filter(lambda f: isfile(f), files)
+    def f(filename):
+        if not isfile(filename):
+            return False
+        filename_lower = filename.lower()
+        if filename_lower.endswith(('.jpg', '.jpeg', '.bmp', '.png')):
+            return True
+        return False
+    files = filter(f, files)
     return list(files)
 
 
@@ -139,7 +146,7 @@ def collect_imgpoints(srcfiles):
     status = []
 
     for fpath in srcfiles:
-        print( 'detecting chessboard in ' + split(fpath)[1] + '.. ',)
+        print( 'detecting chessboard in ' + split(fpath)[1] + '.. ', end='')
         img = cv2.imread(fpath)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         corners = extract_corners(gray, pattern_shape)
