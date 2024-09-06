@@ -43,28 +43,25 @@ def list_sources(srcdir, imgmask):
     files = filter(f, files)
     return list(files)
 
-
 def print_deviations(status, devs, srcfiles):
-    indexes = np.arange(0, len(srcfiles))[status]
-    devs2 = [np.mean(d) for d in devs[status]]
-    print( 'The image points deviation:')
-    for d, i in sorted(zip(devs2, indexes), reverse=True):
+    print('points deviations:')
+    for i in range(len(status)):
         _,name = split(srcfiles[i])
-        print( '  %s: %fpx' % (name, d))
-
+        if status[i] is True:
+            print('  ', name, np.mean(devs[i]))
+        else:
+            print('  ', name, 'not used')
 
 def filter_outliers(status, devs, c=0.9):
-    indexes = np.arange(0, len(status))[status]
-    devs2 = [np.mean(d) for d in devs[status]]
-    pairs = sorted(zip(devs2, indexes), reverse=False)
-
-    n = int(len(pairs) * c)
-    pairs = pairs[0:n]
-    status2 = np.zeros(len(status), dtype=bool)
-    for _,i in pairs:
-        status2[i] = True
-    return status2
-
+    indices = [i for i in range(len(status)) if status[i]]
+    pairs = [(np.mean(devs[i]), i) for i in indices]
+    pairs.sort()
+    n = int(len(pairs) * c + 0.5)
+    thresh = pairs[n - 1][0]
+    new_status = status.copy()
+    for d,i in pairs:
+        new_status[i] = d < thresh
+    return new_status
 
 def plot_cross(img, pt, size, color=255):
     x,y = pt
@@ -81,27 +78,9 @@ def draw_corners(status, srcfiles, dstfiles, pattern_shape, imgpoints):
             cv2.drawChessboardCorners(img, pattern_shape, pts, True)
         cv2.imwrite(dpath, img)
 
-
 def path_add_prefix(fullpath, prefix):
     path,name = split(fullpath)
     return join(path, prefix + name)
-
-
-def expand(status, arr, value=None):
-    '''
-        substitute the 'value' into the 'arr' according to the 'status'
-    '''
-    result = []
-    i = 0
-    for s in status:
-        if s:
-            result.append(arr[i])
-            i += 1
-        else:
-            result.append(value)
-
-    return np.array(result)
-
 
 def extract_corners(img, pattern_shape):
     # downscale the image
@@ -146,12 +125,12 @@ def collect_imgpoints(srcfiles):
     status = []
 
     for fpath in srcfiles:
-        print( 'detecting chessboard in ' + split(fpath)[1] + '.. ', end='')
+        print('detecting chessboard in ' + split(fpath)[1] + '.. ', end='')
         img = cv2.imread(fpath)
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         corners = extract_corners(gray, pattern_shape)
         if corners is None:
-            print( 'couldn\'t find pattern!')
+            print('couldn\'t find pattern!')
             objpoints.append(None)
             imgpoints.append(None)
             status.append(False)
@@ -160,41 +139,31 @@ def collect_imgpoints(srcfiles):
         objpoints.append(objp)
         imgpoints.append(corners)
         status.append(True)
-        print( 'ok')
+        print('ok')
 
-    return np.array(status), np.array(objpoints), np.array(imgpoints)
-
-
-def reproject_points(objpoints, rvecs, tvecs, cameraMatrix, distCoeffs):
-    imgpoints = []
-
-    for objpts, r, t in zip(objpoints, rvecs, tvecs):
-        pts,_ = cv2.projectPoints(objpts, r, t, cameraMatrix, distCoeffs)
-        N,w,h = pts.shape
-        pts = np.reshape(pts, (N, w*h))
-        imgpoints.append(pts)
-
-    return imgpoints
-
+    return status, objpoints, imgpoints
 
 def calibrate(status, objpoints, imgpoints, imgshape):
-    objpoints2 = np.array(objpoints[status])
-    imgpoints2 = np.array(imgpoints[status])
+    indices = [i for i in range(len(status)) if status[i]]
+    objpoints_filtered = np.array([objpoints[i] for i in indices])
+    imgpoints_filtered = np.array([imgpoints[i] for i in indices])
 
-    if len(imgpoints2) < 2:
-        raise Exception('Too few input data')
+    assert len(imgpoints_filtered) >= 2, 'Too few input data'
+    tol, camera_mat, dist_coefs, rvecs, tvecs = \
+        cv2.calibrateCamera(objpoints_filtered, imgpoints_filtered, imgshape, None, None, flags=cv2.CALIB_ZERO_TANGENT_DIST)
 
-    tolerance, cameraMatrix, distCoeffs, rvecs, tvecs = \
-        cv2.calibrateCamera(objpoints2, imgpoints2, imgshape, None, None, flags=cv2.CALIB_ZERO_TANGENT_DIST)  # 
+    deviations = [None] * len(status)
 
-    imgpoints2_repr = reproject_points(objpoints2, rvecs, tvecs, cameraMatrix, distCoeffs)
-    deviations = [np.sqrt(np.sum((p1 - p2)**2, axis=1)) for p1,p2 in zip(imgpoints2, imgpoints2_repr)]
-    deviations = expand(status, deviations)
+    for i in range(len(rvecs)):
+        j = indices[i]
+        imgpts_repr,_ = cv2.projectPoints(objpoints[j], rvecs[i], tvecs[i], camera_mat, dist_coefs)
+        imgpts_repr = imgpts_repr[:,0,:]
+        deviations[j] = np.linalg.norm(imgpts_repr - imgpoints[j], axis=1)
 
     intrinsics = {
-        'tolerance': tolerance,
-        'cameraMatrix': cameraMatrix,
-        'distCoeffs': distCoeffs[0],
+        'tolerance': tol,
+        'cameraMatrix': camera_mat,
+        'distCoeffs': dist_coefs[0],
         'resolution': imgshape
     }
 
@@ -266,17 +235,17 @@ def print_calib_result(intrinsics):
     colored_green = '\033[92m'
     colored_end = '\033[0m'
 
-    print( colored_green)
-    print( '-------------------')
-    print( 'calibration results')
-    print( '-------------------')
-    print( 'tolerance: ', intrinsics['tolerance'])
-    print( 'distortion coefs: ')
-    print( intrinsics['distCoeffs'])
-    print( 'camera matrix: ')
-    print( intrinsics['cameraMatrix'])
-    print( '-------------------')
-    print( colored_end)
+    print(colored_green)
+    print('-------------------')
+    print('calibration results')
+    print('-------------------')
+    print('tolerance: ', intrinsics['tolerance'])
+    print('distortion coefs: ')
+    print(intrinsics['distCoeffs'])
+    print('camera matrix: ')
+    print(intrinsics['cameraMatrix'])
+    print('-------------------')
+    print(colored_end)
 
 
 def main(srcdir, pattern_shape, imgmask, outdir=None, iterations=1, saveto=None):
@@ -290,71 +259,49 @@ def main(srcdir, pattern_shape, imgmask, outdir=None, iterations=1, saveto=None)
     status, objpoints, imgpoints = collect_imgpoints(srcfiles)
 
     if outdir is not None:
-        print( 'drawing corners..',)
+        print('drawing corners..',)
         dstfiles = [join(outdir, 'corners-' + split(f)[1]) for f in srcfiles]
         draw_corners(status, srcfiles, dstfiles, pattern_shape, imgpoints)
-        print( 'done')
+        print('done')
 
-    print( 'calibrating..',)
+    print('calibrating..',)
     intrinsics, deviations = calibrate(status, objpoints, imgpoints, imshape)
-    print( 'ok')
+    print('ok')
 
     print_deviations(status, deviations, srcfiles)
     print_calib_result(intrinsics)
 
     for i in range(iterations-1):
         status = filter_outliers(status, deviations)
-        print( 'outliers: ')
+        print('outliers: ')
         for s,f in zip(status, srcfiles):
             if not s:
                 _,name = split(f)
-                print( ' ', name)
+                print(' ', name)
 
         if sum(status) < 2:
-            print( Warning('can\'t proceed %d iterations ' % iterations))
+            print(Warning('can\'t proceed %d iterations ' % iterations))
             break
 
-        print( 'calibrating..')
+        print('calibrating..')
         intrinsics, deviations = calibrate(status, objpoints, imgpoints, imshape)
-        print( 'ok')
+        print('ok')
 
         print_deviations(status, deviations, srcfiles)
         print_calib_result(intrinsics)
 
     if outdir is not None:
-        # print 'drawing corners..',
-        # dstfiles = [join(outdir, 'corners-' + split(f)[1]) for f in srcfiles]
-        # draw_corners(status, srcfiles, dstfiles, pattern_shape, imgpoints)
-        # print 'done'
-
-        print( 'undistorting..',)
+        print('undistorting..',)
         dstfiles = [join(outdir, 'undistort-' + split(f)[1]) for f in srcfiles]
         undistort(intrinsics, srcfiles, dstfiles)
-        print( 'done')
+        print('done')
 
     if saveto is not None:
         save_parameters(saveto, intrinsics)
 
 
-'''
- run as:
-    python calib.py --srcpath="c:\temp\calib-pattern\samples\IMG_20160526_010427_*.jpg" --pattern=17x10 --iteration=3
-'''
-
-def test_():
-    im = cv2.imread('/home/msurov/dev/datasets/calib4/Image__2017-08-16__11-43-38.bmp', 0)
-    pat_shape = (17,10)
-    pat_shape = (pat_shape[0] - 1, pat_shape[1] - 1)
-    corners = extract_corners(im, pat_shape)
-
-    plt.imshow(im, cmap='gray', interpolation='nearest')
-    plt.plot(corners[:,0], corners[:,1], 'x', markersize=20)
-    plt.grid()
-    plt.show()
-
-
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description='Process some integers.')
+    parser = argparse.ArgumentParser(description='Camera calibration script')
     parser.add_argument('--srcpath', required=True, help='path to directory containing calibration photos')
     parser.add_argument('--outdir', help='path to directory to save undistorted photos')
     parser.add_argument('--pattern', metavar='WxH', required=True, help='shape of the pattern in the form WxH')
